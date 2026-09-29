@@ -1,0 +1,20 @@
+name: 4. Build status
+# Asks App Store Connect for every build of this app and its processing state (PROCESSING, VALID, INVALID, FAILED).
+on: workflow_dispatch
+
+jobs:
+  status:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install fastlane
+        run: bundle install
+      - name: List builds
+        run: bundle exec fastlane status
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}

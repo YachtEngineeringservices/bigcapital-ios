@@ -94,4 +94,18 @@ platform :ios do
     )
     upload_to_testflight(skip_waiting_for_build_processing: true, distribute_external: false)
   end
+
+  desc "4. Show what App Store Connect has: every build of this app and its processing state"
+  lane :status do
+    require_secrets!
+    asc_key
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("No app with bundle id #{APP_ID} in App Store Connect (create it: README step 6)") unless app
+    UI.message("App: #{app.name} (#{app.id}), bundle id #{app.bundle_id}")
+    builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 20)
+    UI.important("No builds at all yet (not even processing).") if builds.empty?
+    builds.each do |b|
+      UI.message("build #{b.version}  uploaded #{b.uploaded_date}  state #{b.processing_state}  expired #{b.expired}  min iOS #{b.min_os_version}")
+    end
+  end
 end
