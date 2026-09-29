@@ -5,7 +5,7 @@ jobs:
   certificates:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install fastlane
         run: bundle install
       - name: Create the distribution certificate and profile (stored encrypted in your private Match repo)
