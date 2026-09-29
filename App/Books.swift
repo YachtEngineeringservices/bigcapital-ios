@@ -18,7 +18,20 @@ enum Books {
     // MARK: lookups
 
     static func accounts() async throws -> [BCAccount] {
-        let top = try await BC.get("/accounts", as: [BCAccount].self)
+        // v0.25.42 returns {"accounts": [...], "filter_meta": {...}}; accept a bare array or {"data": [...]} too.
+        struct Wrapped: Decodable { let accounts: [BCAccount]?; let data: [BCAccount]? }
+        let raw = try await BC.request("GET", "/accounts")
+        let top: [BCAccount]
+        if let list = try? BC.decoder.decode([BCAccount].self, from: raw) {
+            top = list
+        } else {
+            do {
+                let w = try BC.decoder.decode(Wrapped.self, from: raw)
+                top = w.accounts ?? w.data ?? []
+            } catch {
+                throw AppError(message: "Unexpected reply from Bigcapital for /accounts (\(error.localizedDescription)).")
+            }
+        }
         var flat: [BCAccount] = []
         func walk(_ xs: [BCAccount]) { for x in xs { flat.append(x); walk(x.children ?? []) } }
         walk(top)
