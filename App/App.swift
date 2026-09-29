@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct YESBooksApp: App {
+struct BigcapitalIOSApp: App {
     var body: some Scene {
         WindowGroup { RootView() }
     }
@@ -9,6 +9,7 @@ struct YESBooksApp: App {
 
 struct RootView: View {
     @AppStorage("server") private var server = ""
+    @AppStorage("payrollServer") private var payrollServer = ""
 
     var body: some View {
         TabView {
@@ -18,10 +19,12 @@ struct RootView: View {
                 .tabItem { Label("Needs you", systemImage: "tray.full") }
             ReceiptView()
                 .tabItem { Label("Receipt", systemImage: "camera") }
-            PayrollView()
-                .tabItem { Label("Payroll", systemImage: "person.text.rectangle") }
+            if !payrollServer.trimmingCharacters(in: .whitespaces).isEmpty {
+                PayrollView()
+                    .tabItem { Label("Payroll", systemImage: "person.text.rectangle") }
+            }
         }
-        // First launch: ask for the server address before anything else.
+        // First launch: connect to Bigcapital before anything else.
         .sheet(isPresented: Binding(get: { server.isEmpty }, set: { _ in })) {
             SettingsView(firstRun: true).interactiveDismissDisabled()
         }

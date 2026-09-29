@@ -1,17 +1,19 @@
-# YES Books: register the app id, make signing certificates, build and upload to TestFlight.
-# Runs in GitHub Actions (see .github/workflows). Same pattern as Trio's "browser build", with this app's own
-# Match repo: https://github.com/<owner>/yes-books-ios-match (private).
+# Bigcapital unofficial iOS app: register the app id, make signing certificates, build and upload to TestFlight.
+# Runs in GitHub Actions (see .github/workflows). Same pattern as Trio's "browser build". Every fork signs as its
+# own app: the bundle id contains the Apple team id, and certificates live in the fork owner's private Match repo
+# (default name bigcapital-ios-match; override with the repository variable MATCH_REPO).
 #
 # Secrets (repository secrets in GitHub): TEAMID, FASTLANE_ISSUER_ID, FASTLANE_KEY_ID, FASTLANE_KEY, GH_PAT, MATCH_PASSWORD
 require "base64"
 
 default_platform(:ios)
 
-APP_ID = "com.yachtengineeringservices.yesbooks"
-APP_NAME = "YES Books"
-TEAMID = ENV["TEAMID"]
+TEAMID = ENV["TEAMID"].to_s.strip
+APP_ID = "com.#{TEAMID}.bigcapital-ios"
+APP_NAME = "Bigcapital unofficial iOS app"
 OWNER = ENV["GITHUB_REPOSITORY_OWNER"]
-MATCH_GIT_URL = "https://github.com/#{OWNER}/yes-books-ios-match.git"
+MATCH_REPO = ENV["MATCH_REPO"].to_s.strip.empty? ? "bigcapital-ios-match" : ENV["MATCH_REPO"].strip
+MATCH_GIT_URL = "https://github.com/#{OWNER}/#{MATCH_REPO}.git"
 
 def require_secrets!
   missing = %w[TEAMID FASTLANE_ISSUER_ID FASTLANE_KEY_ID FASTLANE_KEY GH_PAT MATCH_PASSWORD].select { |k| ENV[k].to_s.strip.empty? }
@@ -74,17 +76,17 @@ platform :ios do
     )
     profile = ENV["sigh_#{APP_ID}_appstore_profile-name"]
     update_code_signing_settings(
-      path: "YESBooks.xcodeproj",
+      path: "BigcapitalIOS.xcodeproj",
       use_automatic_signing: false,
       team_id: TEAMID,
-      targets: ["YESBooks"],
+      targets: ["BigcapitalIOS"],
       code_sign_identity: "Apple Distribution",
       profile_name: profile,
       bundle_identifier: APP_ID
     )
     build_app(
-      project: "YESBooks.xcodeproj",
-      scheme: "YESBooks",
+      project: "BigcapitalIOS.xcodeproj",
+      scheme: "BigcapitalIOS",
       configuration: "Release",
       export_method: "app-store",
       export_options: { provisioningProfiles: { APP_ID => profile } },

@@ -12,8 +12,8 @@ struct NeedsView: View {
                 if let error { ErrorBanner(message: error) }
                 if let toast { SuccessBanner(message: toast) }
                 if let list {
-                    if list.preview {
-                        Text("Preview until \(list.cutover): last month's transactions, read-only.")
+                    if list.preview, let from = list.writeFrom {
+                        Text("Preview until \(from): last month's transactions, read-only.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -42,7 +42,7 @@ struct NeedsView: View {
 
     private func load() async {
         do {
-            list = try await API.request("GET", "/needs", as: NeedsList.self)
+            list = try await Books.needs()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -58,9 +58,7 @@ private struct NeedRow: View {
                 Text(item.description).lineLimit(2)
                 Text("\(item.accountName) · \(item.date)").font(.caption).foregroundStyle(.secondary)
                 if let rule = item.suggestion?.rule {
-                    Text(rule.replacingOccurrences(of: "yb: ", with: "Suggested: "))
-                        .font(.caption)
-                        .foregroundStyle(.blue)
+                    Text("Suggested: \(rule)").font(.caption).foregroundStyle(.blue)
                 }
             }
             Spacer()
@@ -101,12 +99,11 @@ struct BookSheet: View {
                         Text(item.amount.money).font(.title2).bold().monospacedDigit()
                     }
                     if let rule = item.suggestion?.rule {
-                        Label("Rule suggests: \(rule.replacingOccurrences(of: "yb: ", with: ""))", systemImage: "wand.and.stars")
-                            .font(.caption)
+                        Label("Rule suggests: \(rule)", systemImage: "wand.and.stars").font(.caption)
                     }
                 }
                 if item.readOnly {
-                    Section { Text("Before the go-live this is read-only: QuickBooks has it.").font(.footnote) }
+                    Section { Text("Read-only: dated before the \"don't write before\" date in Settings.").font(.footnote) }
                 }
                 Section("Book as") {
                     Picker("Type", selection: $mode) {
@@ -115,8 +112,8 @@ struct BookSheet: View {
                             Text("Other income").tag("income")
                         } else {
                             Text("Expense").tag("expense")
-                            Text("Travel (reimbursable)").tag("travel")
-                            Text("Distribution").tag("distribution")
+                            if withdrawal?.reimbursable != nil { Text("Reimbursable").tag("reimbursable") }
+                            Text("Distribution / draw").tag("distribution")
                         }
                         Text("Exclude").tag("exclude")
                     }
@@ -143,8 +140,8 @@ struct BookSheet: View {
                                 Text("#\(i.number) \(i.customer ?? "") \(i.due.money)").tag(Int?.some(i.id))
                             }
                         }
-                    case "travel":
-                        Text("Goes to Reimbursable – unassigned; assign it to a client when invoicing.")
+                    case "reimbursable":
+                        Text("Booked to \(withdrawal?.reimbursable?.name ?? "the reimbursable account"); bill it to a client later.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     default:
@@ -160,47 +157,42 @@ struct BookSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(busy ? "Saving…" : "Save") { Task { await save() } }
-                        .disabled(busy || item.readOnly || !valid)
+                        .disabled(busy || item.readOnly || action == nil)
                 }
             }
             .task { await loadChoices() }
         }
     }
 
-    private var chosenAccount: Int? {
+    private var action: Books.Action? {
         switch mode {
-        case "expense": return expenseId
-        case "distribution": return distributionId
-        case "income": return incomeId
+        case "expense": return expenseId.map { .expense(accountId: $0) }
+        case "distribution": return distributionId.map { .distribution(accountId: $0) }
+        case "income": return incomeId.map { .income(accountId: $0) }
+        case "invoice": return invoiceId.map { .invoice(invoiceId: $0) }
+        case "reimbursable": return .reimbursable
+        case "exclude": return memo.trimmingCharacters(in: .whitespaces).count >= 3 ? .exclude : nil
         default: return nil
-        }
-    }
-
-    private var valid: Bool {
-        switch mode {
-        case "expense", "distribution", "income": return chosenAccount != nil
-        case "invoice": return invoiceId != nil
-        case "exclude": return memo.trimmingCharacters(in: .whitespaces).count >= 3
-        case "travel": return true
-        default: return false
         }
     }
 
     private func loadChoices() async {
         do {
             if isDeposit {
-                let d = try await API.request("GET", "/choices?kind=deposit", as: DepositChoices.self)
-                deposit = d
+                deposit = try await Books.depositChoices()
                 mode = "invoice"
                 if item.invoices.count == 1 { invoiceId = item.invoices[0].id }
                 if item.suggestion?.type == "other_income" { mode = "income"; incomeId = item.suggestion?.accountId }
             } else {
-                let w = try await API.request("GET", "/choices?kind=withdrawal", as: WithdrawalChoices.self)
+                let w = try await Books.withdrawalChoices()
                 withdrawal = w
                 if w.distribution.count == 1 { distributionId = w.distribution[0].id }
-                switch item.suggestion?.type {
-                case "owner_drawing": mode = "distribution"; distributionId = item.suggestion?.accountId ?? distributionId
-                default: mode = "expense"; expenseId = item.suggestion?.accountId
+                if item.suggestion?.type == "owner_drawing" {
+                    mode = "distribution"
+                    distributionId = item.suggestion?.accountId ?? distributionId
+                } else {
+                    mode = "expense"
+                    expenseId = item.suggestion?.accountId
                 }
             }
         } catch {
@@ -208,21 +200,13 @@ struct BookSheet: View {
         }
     }
 
-    private struct BookPayload: Encodable {
-        let kind: String
-        let accountId: Int?
-        let invoiceId: Int?
-        let memo: String
-    }
-
     private func save() async {
+        guard let action else { return }
         busy = true
         defer { busy = false }
         do {
-            let reply = try await API.request("POST", "/needs/\(item.id)",
-                                              body: BookPayload(kind: mode, accountId: chosenAccount, invoiceId: invoiceId, memo: memo),
-                                              as: Done.self)
-            done(reply.text)
+            let text = try await Books.book(item.id, action, memo: memo)
+            done(text)
             dismiss()
         } catch {
             self.error = error.localizedDescription

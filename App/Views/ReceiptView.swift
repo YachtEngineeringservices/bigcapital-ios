@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
-/// Photo (or PDF) of a receipt -> pick the charge -> attached in the books.
+/// Photo (or PDF) of a receipt -> pick the charge -> attached in Bigcapital.
 struct ReceiptView: View {
     @State private var image: UIImage?
     @State private var pdf: Data?
@@ -51,7 +51,7 @@ struct ReceiptView: View {
                         Button("Find") { Task { await search() } }.disabled(busy)
                     }
                     if searched && candidates.isEmpty {
-                        Text("No charges since the go-live yet.").font(.footnote).foregroundStyle(.secondary)
+                        Text("No charges found.").font(.footnote).foregroundStyle(.secondary)
                     }
                     ForEach(candidates) { c in
                         Button { choose(c) } label: { CandidateRow(c: c, selected: chosen == c) }.tint(.primary)
@@ -60,10 +60,10 @@ struct ReceiptView: View {
 
                 if let c = chosen {
                     Section("3 · Details") {
-                        if c.needsAccount == true {
+                        if c.needsAccount {
                             Picker("For", selection: $accountId) {
                                 Text("Choose…").tag(Int?.none)
-                                if let t = choices?.travel { Text("Travel (reimbursable)").tag(Int?.some(t.id)) }
+                                if let r = choices?.reimbursable { Text("Reimbursable: \(r.name)").tag(Int?.some(r.id)) }
                                 ForEach(choices?.expense ?? []) { a in Text(a.name).tag(Int?.some(a.id)) }
                             }
                         }
@@ -76,9 +76,9 @@ struct ReceiptView: View {
                     }
                     Section {
                         Button(busy ? "Attaching…" : "Attach receipt") { Task { await attach(c) } }
-                            .disabled(busy || !hasFile || (c.needsAccount == true && accountId == nil) || (isMeal && (who.isEmpty || purpose.isEmpty)))
+                            .disabled(busy || !hasFile || (c.needsAccount && accountId == nil) || (isMeal && (who.isEmpty || purpose.isEmpty)))
                     } footer: {
-                        Text("Meals need who and the business purpose (IRS substantiation).")
+                        Text("Meals need who and the business purpose to be deductible.")
                     }
                 }
 
@@ -109,9 +109,9 @@ struct ReceiptView: View {
     private func choose(_ c: Candidate) {
         chosen = c
         accountId = nil
-        if c.needsAccount == true && choices == nil {
+        if c.needsAccount && choices == nil {
             Task {
-                do { choices = try await API.request("GET", "/choices?kind=withdrawal", as: WithdrawalChoices.self) }
+                do { choices = try await Books.withdrawalChoices() }
                 catch { self.error = error.localizedDescription }
             }
         }
@@ -122,7 +122,7 @@ struct ReceiptView: View {
         defer { busy = false }
         let q = amount.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespaces)
         do {
-            candidates = try await API.request("GET", "/receipts/candidates" + (q.isEmpty ? "" : "?amount=\(q)"), as: [Candidate].self)
+            candidates = try await Books.receiptCandidates(amount: Double(q))
             searched = true
             error = nil
         } catch {
@@ -130,27 +130,17 @@ struct ReceiptView: View {
         }
     }
 
-    private struct Meal: Encodable { let who: String; let purpose: String }
-    private struct ReceiptPayload: Encodable {
-        let target: Target
-        let image: String
-        let mime: String
-        let accountId: Int?
-        let meal: Meal?
-        let memo: String
-    }
-
     private func attach(_ c: Candidate) async {
         busy = true
         defer { busy = false }
-        let file: Data?, mime: String
+        let file: Data?
+        let mime: String
         if let pdf { file = pdf; mime = "application/pdf" } else { file = image?.jpegForUpload(); mime = "image/jpeg" }
         guard let file else { error = "Take or choose the receipt first."; return }
         do {
-            let reply = try await API.request("POST", "/receipts", body: ReceiptPayload(
-                target: c.target, image: file.base64EncodedString(), mime: mime, accountId: accountId,
-                meal: isMeal ? Meal(who: who, purpose: purpose) : nil, memo: memo), as: Done.self)
-            done = reply.text
+            let text = try await Books.attachReceipt(target: c.target, file: file, mime: mime, accountId: accountId,
+                                                     mealWho: isMeal ? who : "", mealPurpose: isMeal ? purpose : "", memo: memo)
+            done = text
             error = nil
             image = nil; pdf = nil; photoItem = nil; chosen = nil
             isMeal = false; who = ""; purpose = ""; memo = ""; amount = ""

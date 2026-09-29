@@ -20,8 +20,8 @@ struct PayrollView: View {
                 if let error { ErrorBanner(message: error) }
                 if let toast { SuccessBanner(message: toast) }
                 if let info {
-                    if info.preview {
-                        Text("Preview: QuickBooks runs payroll until \(info.payrollFrom). Pay runs here are dry runs and can't be approved yet.")
+                    if let until = info.previewUntil {
+                        Text("Preview until \(until): pay runs here are dry runs and can't be approved yet.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -47,7 +47,7 @@ struct PayrollView: View {
                             if p.preview {
                                 Text("Dry run: nothing saved.").font(.footnote).foregroundStyle(.secondary)
                             } else if p.status == "draft" {
-                                Button("Approve and post to the books") { confirmApprove = true }
+                                Button("Approve") { confirmApprove = true }
                                     .bold()
                                     .disabled(busy)
                             }
@@ -55,12 +55,14 @@ struct PayrollView: View {
                     }
                     Section("Tax deposits") {
                         if info.deposits.isEmpty { Text("None due").foregroundStyle(.secondary) }
-                        ForEach(info.deposits) { d in DepositRow(d: d) { scheduling = d; schedAmount = d.amount; schedConfirmation = "" } }
+                        ForEach(info.deposits) { d in
+                            DepositRow(d: d) { scheduling = d; schedAmount = d.amount; schedConfirmation = "" }
+                        }
                     }
                     Section("Recent pay runs") {
                         if info.runs.isEmpty { Text("None yet").foregroundStyle(.secondary) }
                         ForEach(info.runs) { r in
-                            LabeledContent(r.payDate, value: "\(r.status)\(r.posted == true ? " · posted" : "") · net \(r.totals?.net.money ?? "–")")
+                            LabeledContent(r.payDate, value: "\(r.status)\(r.posted ? " · posted" : "") · net \(r.totals?.net.money ?? "–")")
                         }
                     }
                 } else if error == nil {
@@ -71,9 +73,9 @@ struct PayrollView: View {
             .task { await load() }
             .refreshable { await load() }
             .confirmationDialog("Approve the \(prepared?.payDate ?? "") pay run?", isPresented: $confirmApprove, titleVisibility: .visible) {
-                Button("Approve and post") { Task { await approve() } }
+                Button("Approve") { Task { await approve() } }
             } message: {
-                Text("This locks the pay run, stores the pay stubs and posts the payroll journals to the books.")
+                Text("This locks the pay run and stores the pay stubs. If the payroll server posts to Bigcapital, it does so now.")
             }
             .alert("Mark scheduled", isPresented: Binding(get: { scheduling != nil }, set: { if !$0 { scheduling = nil } })) {
                 TextField("Amount", text: $schedAmount).keyboardType(.decimalPad)
@@ -81,7 +83,7 @@ struct PayrollView: View {
                 Button("Save") { if let d = scheduling { Task { await markScheduled(d) } } }
                 Button("Cancel", role: .cancel) { scheduling = nil }
             } message: {
-                Text("After you schedule it in \(scheduling?.agency == "IRS" ? "EFTPS" : "EDD e-Services"). Settlement date = the due date.")
+                Text("After you've scheduled the \(scheduling?.agency ?? "") payment.")
             }
             .sheet(item: $stub) { s in StubSheet(ref: s) }
         }
@@ -89,32 +91,30 @@ struct PayrollView: View {
 
     private func load() async {
         do {
-            info = try await API.request("GET", "/payroll", as: PayrollInfo.self)
+            info = try await Payroll.info()
             error = nil
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    private struct PayDateBody: Encodable { let payDate: String }
     private func prepare(_ date: String) async {
         busy = true
         defer { busy = false }
         do {
-            prepared = try await API.request("POST", "/payroll/runs", body: PayDateBody(payDate: date), as: Prepared.self)
+            prepared = try await Payroll.prepare(date)
             error = nil
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    private struct Empty: Encodable {}
     private func approve() async {
         guard let p = prepared else { return }
         busy = true
         defer { busy = false }
         do {
-            _ = try await API.request("POST", "/payroll/runs/\(p.payDate)/approve", body: Empty(), as: Approved.self)
+            try await Payroll.approve(p.payDate)
             toast = "Pay run \(p.payDate) approved."
             prepared = nil
             await load()
@@ -123,12 +123,9 @@ struct PayrollView: View {
         }
     }
 
-    private struct ScheduleBody: Encodable { let amount: String; let confirmation: String }
     private func markScheduled(_ d: Deposit) async {
         do {
-            let amt = schedAmount.replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "")
-            let id = d.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/+"))) ?? d.id
-            _ = try await API.request("POST", "/payroll/deposits/\(id)/scheduled", body: ScheduleBody(amount: amt, confirmation: schedConfirmation), as: ScheduledReply.self)
+            try await Payroll.markScheduled(d.id, amount: schedAmount, confirmation: schedConfirmation)
             toast = "\(d.agency) \(d.kind) \(d.period) marked scheduled."
             scheduling = nil
             await load()
@@ -147,7 +144,7 @@ private struct DepositRow: View {
                 Text("\(d.agency) \(d.kind) · \(d.period)")
                 Text("Due \(d.dueDate)" + (d.projected == true ? " · projected" : "")).font(.caption).foregroundStyle(.secondary)
                 if let s = d.scheduled {
-                    Text("Scheduled \(s.amount.money)\(s.confirmation.map { " · #\($0)" } ?? "")").font(.caption).foregroundStyle(.green)
+                    Text("Scheduled \(s.amount.money)").font(.caption).foregroundStyle(.green)
                 }
             }
             Spacer()
@@ -182,7 +179,7 @@ private struct StubSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
             .task {
-                do { data = try await API.data("GET", "/payroll/runs/\(ref.payDate)/stubs/\(ref.employeeId).pdf") }
+                do { data = try await Payroll.stub(ref.payDate, employeeId: ref.employeeId) }
                 catch { self.error = error.localizedDescription }
             }
         }

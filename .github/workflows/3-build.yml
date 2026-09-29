@@ -1,9 +1,9 @@
-name: 3. Build YES Books
+name: 3. Build
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["YESBooks/**", "project.yml"]
+    paths: ["App/**", "project.yml"]
   # TestFlight builds expire after 90 days: rebuild on the 1st of every month so there is always a live one.
   schedule:
     - cron: "0 10 1 * *"
@@ -37,3 +37,4 @@ jobs:
           FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
           GH_PAT: ${{ secrets.GH_PAT }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_REPO: ${{ vars.MATCH_REPO }}

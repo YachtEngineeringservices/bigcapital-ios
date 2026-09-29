@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GlanceView: View {
     @State private var summary: Summary?
+    @State private var payroll: PayrollInfo?
     @State private var error: String?
     @State private var showSettings = false
 
@@ -10,9 +11,9 @@ struct GlanceView: View {
             List {
                 if let error { Section { ErrorBanner(message: error) } }
                 if let s = summary {
-                    if !s.booksLive {
+                    if let from = s.writeFrom, s.today < from {
                         Section {
-                            Label("Preview: the books move here on \(s.cutover). Until then QuickBooks is the book of record.", systemImage: "info.circle")
+                            Label("Preview: this app writes nothing dated before \(from).", systemImage: "info.circle")
                                 .font(.footnote)
                         }
                     }
@@ -36,9 +37,9 @@ struct GlanceView: View {
                     }
                     Section("Coming up") {
                         LabeledContent("Needs you", value: "\(s.needs)")
-                        if let p = s.payroll {
+                        if let p = payroll {
                             if let next = p.next { LabeledContent("Next payday", value: next) }
-                            ForEach(p.deposits) { d in
+                            ForEach(p.deposits.filter { $0.scheduled == nil }.prefix(3)) { d in
                                 LabeledContent("\(d.agency) \(d.kind) · due \(d.dueDate)", value: d.amount.money)
                             }
                         }
@@ -47,7 +48,7 @@ struct GlanceView: View {
                     Section { ProgressView() }
                 }
             }
-            .navigationTitle("YES Books")
+            .navigationTitle("Bigcapital")
             .toolbar {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
@@ -59,7 +60,8 @@ struct GlanceView: View {
 
     private func load() async {
         do {
-            summary = try await API.request("GET", "/summary", as: Summary.self)
+            summary = try await Books.summary()
+            if Payroll.enabled { payroll = try? await Payroll.info() } else { payroll = nil }
             error = nil
         } catch {
             self.error = error.localizedDescription

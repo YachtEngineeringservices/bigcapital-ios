@@ -21,5 +21,6 @@ jobs:
       - name: Build (simulator, unsigned)
         run: |
           set -o pipefail
-          xcodebuild -project YESBooks.xcodeproj -scheme YESBooks -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -40
+          xcodebuild -project BigcapitalIOS.xcodeproj -scheme BigcapitalIOS -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM=COMPILECHK build 2>&1 \
+            | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
