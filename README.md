@@ -33,7 +33,8 @@ holds the signing certificates, and it uploads to your own TestFlight. You need 
 1. **Fork this repo.** Create an empty **private** repo named `bigcapital-ios-match` under the same owner; fastlane
    stores your encrypted certificates there. To use another name, set it as the repository variable `MATCH_REPO`.
 2. **App Store Connect API key:** App Store Connect → Users and Access → Integrations → App Store Connect API →
-   Team Keys → "+" with the **App Manager** role. Note the **Issuer ID** and **Key ID** and download the `.p8`.
+   Team Keys → "+" with **Admin** access (as in Trio's and Loop's build guides: the workflows create certificates and
+   app ids through the API). Note the **Issuer ID** and **Key ID** and download the `.p8` (downloadable once only).
 3. **GitHub token:** a classic personal access token with the `repo` scope.
 4. **Secrets:** your fork → Settings → Secrets and variables → Actions → New repository secret:
    - `TEAMID`: your 10-character Apple team ID (developer.apple.com → Membership)
