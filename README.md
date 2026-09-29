@@ -63,8 +63,8 @@ the Tailscale app.
 
 ## Payroll (optional)
 
-The Payroll tab appears when a payroll server is set. It talks to an **openpayroll** server (a US payroll engine by
-the same author, not yet published) over its HTTP API: `/api/payruns`, `/api/payruns/<date>/approve`, `/api/deposits`,
+The Payroll tab appears when a payroll server is set. It talks to an [**openpayroll**](https://github.com/YachtEngineeringservices/openpayroll)
+server (open-source US payroll engine, federal + California) over its HTTP API: `/api/payruns`, `/api/payruns/<date>/approve`, `/api/deposits`,
 `/api/deposits/<id>/scheduled`. openpayroll has no login of its own, so keep it on a private network. A
 "live from" date makes earlier pay runs dry-run previews that can't be approved.
 
