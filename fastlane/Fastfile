@@ -1,0 +1,95 @@
+# YES Books: register the app id, make signing certificates, build and upload to TestFlight.
+# Runs in GitHub Actions (see .github/workflows). Same pattern as Trio's "browser build", with this app's own
+# Match repo: https://github.com/<owner>/yes-books-ios-match (private).
+#
+# Secrets (repository secrets in GitHub): TEAMID, FASTLANE_ISSUER_ID, FASTLANE_KEY_ID, FASTLANE_KEY, GH_PAT, MATCH_PASSWORD
+require "base64"
+
+default_platform(:ios)
+
+APP_ID = "com.yachtengineeringservices.yesbooks"
+APP_NAME = "YES Books"
+TEAMID = ENV["TEAMID"]
+OWNER = ENV["GITHUB_REPOSITORY_OWNER"]
+MATCH_GIT_URL = "https://github.com/#{OWNER}/yes-books-ios-match.git"
+
+def require_secrets!
+  missing = %w[TEAMID FASTLANE_ISSUER_ID FASTLANE_KEY_ID FASTLANE_KEY GH_PAT MATCH_PASSWORD].select { |k| ENV[k].to_s.strip.empty? }
+  UI.user_error!("Missing repository secrets: #{missing.join(', ')}. Add them under Settings > Secrets and variables > Actions.") unless missing.empty?
+end
+
+def asc_key
+  app_store_connect_api_key(
+    key_id: ENV["FASTLANE_KEY_ID"],
+    issuer_id: ENV["FASTLANE_ISSUER_ID"],
+    key_content: ENV["FASTLANE_KEY"],
+    duration: 1200,
+    in_house: false
+  )
+end
+
+def match_auth
+  Base64.strict_encode64("#{OWNER}:#{ENV['GH_PAT']}")
+end
+
+platform :ios do
+  desc "1. Register the bundle identifier with Apple"
+  lane :identifiers do
+    require_secrets!
+    asc_key
+    if Spaceship::ConnectAPI::BundleId.find(APP_ID)
+      UI.success("#{APP_ID} is already registered")
+    else
+      Spaceship::ConnectAPI::BundleId.create(name: APP_NAME, identifier: APP_ID, platform: "IOS")
+      UI.success("Registered #{APP_ID}")
+    end
+  end
+
+  desc "2. Create (or renew) the App Store distribution certificate and profile in the Match repo"
+  lane :certs do
+    require_secrets!
+    asc_key
+    match(
+      type: "appstore",
+      app_identifier: [APP_ID],
+      team_id: TEAMID,
+      git_url: MATCH_GIT_URL,
+      git_basic_authorization: match_auth,
+      readonly: false
+    )
+  end
+
+  desc "3. Build and upload to TestFlight"
+  lane :build do
+    require_secrets!
+    setup_ci if ENV["CI"]
+    asc_key
+    match(
+      type: "appstore",
+      app_identifier: [APP_ID],
+      team_id: TEAMID,
+      git_url: MATCH_GIT_URL,
+      git_basic_authorization: match_auth,
+      readonly: true
+    )
+    profile = ENV["sigh_#{APP_ID}_appstore_profile-name"]
+    update_code_signing_settings(
+      path: "YESBooks.xcodeproj",
+      use_automatic_signing: false,
+      team_id: TEAMID,
+      targets: ["YESBooks"],
+      code_sign_identity: "Apple Distribution",
+      profile_name: profile,
+      bundle_identifier: APP_ID
+    )
+    build_app(
+      project: "YESBooks.xcodeproj",
+      scheme: "YESBooks",
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: { provisioningProfiles: { APP_ID => profile } },
+      xcargs: "CURRENT_PROJECT_VERSION=#{ENV.fetch('GITHUB_RUN_NUMBER', '1')} DEVELOPMENT_TEAM=#{TEAMID}"
+    )
+    upload_to_testflight(skip_waiting_for_build_processing: true, distribute_external: false)
+  end
+end

@@ -1,0 +1,39 @@
+name: 3. Build YES Books
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["YESBooks/**", "project.yml"]
+  # TestFlight builds expire after 90 days: rebuild on the 1st of every month so there is always a live one.
+  schedule:
+    - cron: "0 10 1 * *"
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest stable Xcode on the runner
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install XcodeGen and fastlane
+        run: |
+          brew install xcodegen
+          bundle install
+      - name: Generate the Xcode project
+        run: xcodegen generate
+      - name: Build and upload to TestFlight
+        run: bundle exec fastlane build
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}

@@ -1,0 +1,19 @@
+name: 1. Add identifiers
+on: workflow_dispatch
+
+jobs:
+  identifiers:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fastlane
+        run: bundle install
+      - name: Register the app id with Apple
+        run: bundle exec fastlane identifiers
+        env:
+          TEAMID: ${{ secrets.TEAMID }}
+          FASTLANE_ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+          FASTLANE_KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
